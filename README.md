@@ -2,6 +2,9 @@
 # OneFile PTM / STM
 
 OneFile is a Software Transactional Memory (STM) meant to make it easy to implement lock-free and wait-free data structures.
+It is based on the paper "[OneFile: A Wait-free Persistent Transactional Memory](https://github.com/pramalhe/OneFile/blob/master/OneFile-2019.pdf)" by Ramalhete, Correia, Felber and Cohen
+https://github.com/pramalhe/OneFile/blob/master/OneFile-2019.pdf
+
 It provides multi-word atomic updates on *tmtype<T>* objects, where T must be word-size, typically a pointer or integer.
 During a transaction, each store on an *tmtpye<T>* is transformed into a double-word-compare-and-swap DCAS() and one more regular CAS() is done to complete the transaction. It does this with a store-log (write-set) which other writers can help apply. 
 This is a "redo-log" based technique, which means that both store and loads need to be interposed. Stores will be interposed to save them in the log and loads will be interposed to lookup on the log the most recent value.
