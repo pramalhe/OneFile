@@ -1,0 +1,6 @@
+/libromulus.a
+/mallocromlog.o
+/mallocromlr.o
+/romlog.o
+/romlr.o
+/threadregistry.o

@@ -1,0 +1,29 @@
+# Debug/optimization flags (optimized by default)
+ifeq ($(CFG),debug)
+  CFLAGS += -O0 -ggdb3
+else
+  CFLAGS += -O2
+  CFLAGS += -march=native
+endif
+
+# Disable strict aliasing 
+# TODO: no-strict-aliasing removes some optimizations but seems required for correctness. need more investigation.
+CFLAGS += -fno-strict-aliasing
+# Disable stack smashing protector (__stack_chk_fail)
+CFLAGS += -fno-stack-protector
+# Enable all warnings but unsused functions and labels
+CFLAGS += -Wall -Wno-unused-function -Wno-unused-label
+# Enable extra warnings
+# CFLAGS += -Wextra
+# Link Time Optimization (LDFLAGS also requires optimization flags)
+# CFLAGS += -flto
+# LDFLAGS += $(CFLAGS) -fwhole-program -fuse-linker-plugin
+
+# Enable profiling mode
+# CFLAGS += -fprofile-generate
+# LDFLAGS += -fprofile-generate
+# Run typical program
+# Use the profiling information to compile
+# CFLAGS += -fprofile-use
+# LDFLAGS += -fprofile-use
+

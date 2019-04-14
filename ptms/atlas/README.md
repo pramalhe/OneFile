@@ -1,0 +1,2 @@
+Atlas doesn't provide durable linearizable transactions (ACID) and therefore, it is not directly comparable with the other PTMs.
+Also, it's a bit of a pain to get working because it requires a patch to the compiler. If you really want to see for yourself, here it is.

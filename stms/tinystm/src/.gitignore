@@ -1,0 +1,8 @@
+/mod_ab.o
+/mod_cb_mem.o
+/mod_log.o
+/mod_order.o
+/mod_print.o
+/mod_stats.o
+/stm.o
+/wrappers.o

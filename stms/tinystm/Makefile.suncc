@@ -1,0 +1,17 @@
+# Debug/optimization flags (optimized by default)
+ifeq ($(CFG),debug)
+  CFLAGS += -g
+else
+  CFLAGS += -xO3
+  CFLAGS += -native
+endif
+
+# Enable all optimizations
+# CFLAGS += -fast
+# Enable Inter-procedural optimization (LTO)
+# CFLAGS += -xipo=2
+# Enable profiling mode
+# CFLAGS += -xprofile=collect
+# Run typical program
+# Use the profiling information to compile
+# CFLAGS += -xprofile=use

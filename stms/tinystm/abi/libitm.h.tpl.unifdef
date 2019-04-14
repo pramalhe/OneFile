@@ -1,0 +1,181 @@
+#if defined(TM_GCC) || defined(TM_DTMC)
+#define _ITM_TRANSACTION_PURE __attribute__((transaction_pure))
+#elif defined(TM_INTEL)
+#define _ITM_TRANSACTION_PURE __attribute__((tm_pure))
+/* TODO [[transaction_pure]] */
+#endif
+
+/* ################################################################### *
+ * TYPES
+ * ################################################################### */
+
+typedef void *_ITM_transaction;
+
+typedef void (*_ITM_userUndoFunction)(void *);
+typedef void (*_ITM_userCommitFunction)(void *);
+
+typedef uint32_t _ITM_transactionId;
+
+typedef enum
+{
+  outsideTransaction = 0,
+  inRetryableTransaction,
+  inIrrevocableTransaction
+} _ITM_howExecuting;
+
+struct _ITM_srcLocationS
+{
+  int32_t reserved_1;
+  int32_t flags;
+  int32_t reserved_2;
+  int32_t reserved_3;
+  const char *psource;
+};
+
+typedef struct _ITM_srcLocationS _ITM_srcLocation;
+
+typedef enum {
+  pr_instrumentedCode = 0x0001,
+  pr_uninstrumentedCode = 0x0002,
+  pr_multiwayCode = pr_instrumentedCode | pr_uninstrumentedCode,
+  pr_hasNoXMMUpdate = 0x0004,
+  pr_hasNoAbort = 0x0008,
+  pr_hasNoRetry = 0x0010,
+  pr_hasNoIrrevocable = 0x0020,
+  pr_doesGoIrrevocable = 0x0040,
+  pr_hasNoSimpleReads = 0x0080,
+  pr_aWBarriersOmitted = 0x0100,
+  pr_RaRBarriersOmitted = 0x0200,
+  pr_undoLogCode = 0x0400,
+  pr_preferUninstrumented = 0x0800,
+  pr_exceptionBlock = 0x1000,
+  pr_hasElse = 0x2000,
+  pr_readOnly = 0x4000 /* GNU gcc specific */
+} _ITM_codeProperties;
+
+typedef enum {
+  a_runInstrumentedCode = 0x01,
+  a_runUninstrumentedCode = 0x02,
+  a_saveLiveVariables = 0x04,
+  a_restoreLiveVariables = 0x08,
+  a_abortTransaction = 0x10,
+} _ITM_actions;
+
+typedef enum {
+  modeSerialIrrevocable,
+  modeObstinate,
+  modeOptimistic,
+  modePessimistic,
+} _ITM_transactionState;
+
+typedef enum {
+  unknown = 0,
+  userAbort = 1,
+  userRetry = 2,
+  TMConflict= 4,
+  exceptionBlockAbort = 8
+} _ITM_abortReason;
+
+
+/* ################################################################### *
+ * FUNCTIONS
+ * ################################################################### */
+
+extern _ITM_TRANSACTION_PURE
+_ITM_transaction * _ITM_CALL_CONVENTION _ITM_getTransaction(void);
+
+extern _ITM_TRANSACTION_PURE
+_ITM_howExecuting _ITM_CALL_CONVENTION _ITM_inTransaction(TX_ARG);
+
+extern _ITM_TRANSACTION_PURE
+int _ITM_CALL_CONVENTION _ITM_getThreadnum(void);
+
+extern _ITM_TRANSACTION_PURE
+void _ITM_CALL_CONVENTION _ITM_addUserCommitAction(TX_ARGS 
+                             _ITM_userCommitFunction __commit,
+                             _ITM_transactionId resumingTransactionId,
+                             void *__arg);
+
+extern _ITM_TRANSACTION_PURE
+void _ITM_CALL_CONVENTION _ITM_addUserUndoAction(TX_ARGS 
+                             const _ITM_userUndoFunction __undo, void * __arg);
+
+extern _ITM_TRANSACTION_PURE
+_ITM_transactionId _ITM_CALL_CONVENTION _ITM_getTransactionId(TX_ARG);
+
+extern _ITM_TRANSACTION_PURE
+void _ITM_CALL_CONVENTION _ITM_dropReferences(TX_ARGS 
+                             const void *__start, size_t __size);
+
+extern _ITM_TRANSACTION_PURE
+void _ITM_CALL_CONVENTION _ITM_userError(const char *errString, int exitCode);
+
+extern const char * _ITM_CALL_CONVENTION _ITM_libraryVersion(void);
+
+extern int _ITM_CALL_CONVENTION _ITM_versionCompatible(int version);
+
+
+extern int _ITM_CALL_CONVENTION _ITM_initializeThread(void);
+
+extern void _ITM_CALL_CONVENTION _ITM_finalizeThread(void);
+
+extern void _ITM_CALL_CONVENTION _ITM_finalizeProcess(void);
+
+extern int _ITM_CALL_CONVENTION _ITM_initializeProcess(void);
+
+extern void _ITM_CALL_CONVENTION _ITM_error(const _ITM_srcLocation *__src,
+                             int errorCode);
+
+#if defined(TM_GCC)
+extern uint32_t _ITM_beginTransaction(uint32_t __properties, ...)
+                             __attribute__((returns_twice));
+extern void _ITM_CALL_CONVENTION _ITM_commitTransaction(void);
+
+#elif defined(TM_INTEL) || defined(TM_DTMC)
+extern uint32_t _ITM_CALL_CONVENTION _ITM_beginTransaction(TX_ARGS 
+                             uint32_t __properties,
+                             const _ITM_srcLocation *__src)
+                             __attribute__((returns_twice));
+
+extern void _ITM_CALL_CONVENTION _ITM_commitTransaction(TX_ARGS 
+                             const _ITM_srcLocation *__src);
+#endif /* TM_INTEL */
+
+/* TODO only Intel tryCommit + _ITM_srcLocation  */
+extern bool _ITM_CALL_CONVENTION _ITM_tryCommitTransaction(TX_ARGS 
+                             const _ITM_srcLocation *__src);
+
+extern void _ITM_CALL_CONVENTION _ITM_commitTransactionToId(TX_ARGS 
+                             const _ITM_transactionId tid,
+                             const _ITM_srcLocation *__src);
+
+extern void _ITM_CALL_CONVENTION _ITM_abortTransaction(TX_ARGS 
+                             _ITM_abortReason __reason,
+                             const _ITM_srcLocation *__src);
+
+extern void _ITM_CALL_CONVENTION _ITM_rollbackTransaction(TX_ARGS 
+                             const _ITM_srcLocation *__src);
+
+extern void _ITM_CALL_CONVENTION _ITM_registerThrownObject(TX_ARGS 
+                             const void *__obj,
+                             size_t __size);
+
+extern void _ITM_CALL_CONVENTION _ITM_changeTransactionMode(TX_ARGS 
+                             _ITM_transactionState __mode,
+                             const _ITM_srcLocation *__loc);
+
+#if defined(TM_GCC)
+/**** GCC Specific ****/
+extern _ITM_CALL_CONVENTION void *_ITM_getTMCloneOrIrrevocable(void *);
+extern _ITM_CALL_CONVENTION void *_ITM_getTMCloneSafe(void *);
+extern void _ITM_registerTMCloneTable(void *, size_t);
+extern void _ITM_deregisterTMCloneTable(void *);
+extern _ITM_CALL_CONVENTION void _ITM_commitTransactionEH(void *);
+#endif /* defined(TM_GCC) */
+
+#if defined(TM_GCC) || defined(TM_DTMC)
+extern void * _ITM_malloc(size_t);
+extern void * _ITM_calloc(size_t, size_t);
+extern void _ITM_free(void *);
+#endif /* defined(TM_GCC) || defined(TM_DTMC) */
+

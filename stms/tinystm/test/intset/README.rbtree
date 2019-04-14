@@ -1,0 +1,4 @@
+The red-black tree implementation (rbtree.c, rbtree.h, types.h) comes
+from the STAMP 0.9.10 distribution available from
+<http://stamp.stanford.edu>.  Files have not been modified in any way
+besides enabling memory deallocation upon node release.

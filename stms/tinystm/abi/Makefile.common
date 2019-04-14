@@ -1,0 +1,111 @@
+# Path to tinySTM
+ROOT ?= ..
+
+# ROOT must be defined to include Makefile.common
+include $(ROOT)/Makefile.common
+
+##############################################################################
+# Compilation options.  Note that the definitions from the main makefile
+# are not used here, so one can use different options here.
+##############################################################################
+
+#TODO test if function are inline or need a specific header to force inlining
+#TODO Flags may changed. I must find a way to keep up to date with current tiny. 
+
+# DEFINES += -DDESIGN=WRITE_BACK_ETL
+# DEFINES += -DDESIGN=WRITE_BACK_CTL
+DEFINES += -DDESIGN=WRITE_THROUGH
+
+DEFINES += -DCM=CM_SUICIDE
+# DEFINES += -DCM=CM_DELAY
+# DEFINES += -DCM=CM_BACKOFF
+# DEFINES += -DCM=CM_MODULAR
+
+#DEFINES += -DEPOCH_GC
+DEFINES += -UEPOCH_GC
+# DEFINES += -DREAD_LOCKED_DATA
+
+#DEFINES += -DLOCK_SHIFT_EXTRA=0
+DEFINES += -DTM_STATISTICS
+DEFINES += -UTM_STATISTICS2
+
+# DEFINES += -DNO_STACK_CHECK
+# DEFINES += -DTANGER_STATS
+
+DEFINES += -DIRREVOCABLE_ENABLED
+# DEFINES += -UIRREVOCABLE_ENABLED
+
+# Add wrapper for pthread function 
+# DEFINES += -DPTHREAD_WRAPPER
+DEFINES += -UPTHREAD_WRAPPER
+# TODO if THREAD_WRAPPER is defined, library must be linked with -ldl
+
+# Define how TLS is used in ABI (should be removed for next release)
+DEFINES += -DTLS_COMPILER
+
+##############################################################################
+# Do not modify anything below this point!
+##############################################################################
+# TODO Use libtool to generate libraries
+# libtool --mode=compile
+# libtool --mode=link
+# libtool --mode=install 
+
+# NOTES
+# Use explicit parameters for Tanger and Intel STM Compiler
+
+# TODO make it MacOS compatible
+
+# Remove the -DEXPLICIT_TX_PARAMETER flag if defined
+# Manage it accordingly to the required library 
+# TODO is it useful?
+DEF_ABI = $(subst -DEXPLICIT_TX_PARAMETER,,$(DEFINES))
+
+# Rules for intset benchmarks
+BINS = intset-hs intset-ll intset-rb intset-sl bank
+
+intset-hs.o:	$(ROOT)/test/intset/intset.c
+	$(TESTCC) $(TESTCFLAGS) -DUSE_HASHSET -c -o $@ $<
+
+intset-ll.o:	$(ROOT)/test/intset/intset.c
+	$(TESTCC) $(TESTCFLAGS) -DUSE_LINKEDLIST -c -o $@ $<
+
+intset-rb.o:	$(ROOT)/test/intset/intset.c
+	$(TESTCC) $(TESTCFLAGS) -DUSE_RBTREE -c -o $@ $<
+
+intset-sl.o:	$(ROOT)/test/intset/intset.c
+	$(TESTCC) $(TESTCFLAGS) -DUSE_SKIPLIST -c -o $@ $<
+
+bank.o:	$(ROOT)/test/bank/bank.c
+	$(TESTCC) $(TESTCFLAGS) -c -o $@ $<
+
+# FIXME in case of ABI $(TMLIB) must be replaced to abi/...
+$(BINS):	%:	%.o all
+	$(TESTLD) -o $@ $< $(TESTLDFLAGS) -lpthread
+
+test: 	all $(BINS)
+
+intset-clean:
+	rm -f $(BINS)
+
+check: 	test intset-check
+
+intset-check:
+	@echo Testing Linked List \(intset-ll\)
+	@./intset-ll -d 2000 1>/dev/null 2>&1
+	@echo Testing Linked List with concurrency \(intset-ll -n 4\)
+	@./intset-ll -d 2000 -n 4 1>/dev/null 2>&1
+	@echo Testing Red Black Tree \(intset-rb\)
+	@./intset-rb -d 2000 1>/dev/null 2>&1
+	@echo Testing Red Black Tree with concurrency \(intset-rb -n 4\)
+	@./intset-rb -d 2000 -n 4 1>/dev/null 2>&1
+	@echo Testing Skip List \(intset-sl\)
+	@./intset-sl -d 2000 1>/dev/null 2>&1
+	@echo Testing Skip List with concurrency \(intset-sl -n 4\)
+	@./intset-sl -d 2000 -n 4 1>/dev/null 2>&1
+	@echo Testing Hash Set \(intset-hs\)
+	@./intset-hs -d 2000 1>/dev/null 2>&1
+	@echo Testing Hash Set with concurrency \(intset-hs -n 4\)
+	@./intset-hs -d 2000 -n 4 1>/dev/null 2>&1
+	@echo All tests passed
+

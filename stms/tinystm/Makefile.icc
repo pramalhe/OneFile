@@ -1,0 +1,33 @@
+# Intel compiler has a GCC compatibility mode
+
+# Debug/optimization flags (optimized by default)
+ifeq ($(CFG),debug)
+  CFLAGS += -O0 -ggdb3
+else
+  CFLAGS += -xHOST -O2
+endif
+
+# Full optimizations (IPO, O3, xHOST)
+# CFLAGS += -fast
+
+# Disable strict aliasing (remove some optimization but required for correctness? need more investigation)
+CFLAGS += -fno-strict-aliasing
+# Disable stack smashing protector (__stack_chk_fail)
+CFLAGS += -fno-stack-protector
+# Enable all warnings but unsused functions and labels
+CFLAGS += -Wall
+# Enable inlining information
+# CFLAGS += -Winline
+# Disable intel builtins like _intel_fast_memset
+# CFLAGS += -fno-builtin
+# Align functions on 16-bytes boundary
+# CFLAGS += -falign-functions=16
+
+# Enable profiling mode
+# CFLAGS += -prof-gen
+# LDFLAGS += -prof-gen
+# Run typical program
+# Use the profiled information to compile
+# CFLAGS += -prof-use
+# LDFLAGS += -prof-use
+

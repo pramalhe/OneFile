@@ -1,0 +1,468 @@
+diff --git a/OnefileReadme.md b/OnefileReadme.md
+new file mode 100644
+index 0000000..6e6920d
+--- /dev/null
++++ b/OnefileReadme.md
+@@ -0,0 +1,5 @@
++# Building Atlas
++
++1. Build plugin. cd compiler-plugin; make
++2. Build Atlas. cd runtime; mkdir build; cd build; cmake ..; make -j
++
+diff --git a/compiler-plugin/Makefile b/compiler-plugin/Makefile
+new file mode 100644
+index 0000000..ac81d22
+--- /dev/null
++++ b/compiler-plugin/Makefile
+@@ -0,0 +1,7 @@
++
++all: plugin
++
++plugin: plugin_build/NvmInstrumenter.so
++
++plugin_build/NvmInstrumenter.so: src/Instrumentation/NvmInstrumenter.cpp
++	./build_plugin
+\ No newline at end of file
+diff --git a/compiler-plugin/build_plugin b/compiler-plugin/build_plugin
+index 0cde572..dc38e9e 100755
+--- a/compiler-plugin/build_plugin
++++ b/compiler-plugin/build_plugin
+@@ -15,6 +15,8 @@
+ # <http://www.gnu.org/licenses/>.
+ #
+ 
++#etc_flags="-stdlib=libstdc++ -D_GLIBCXX_USE_CXX11_ABI=0 -fno-rtti"
++
+ logfile="build_log.txt"
+ if [ -f "$logfile" ]; then
+     rm $logfile
+@@ -28,7 +30,7 @@ if [ ! -f "$srcfile" ]; then
+     echo "Could not find plugin source file NvmInstrumenter.cpp - are you running from within Atlas/compiler-plugin?"
+     exit 1
+ fi
+-clangpppath=$(which clang++; reval="$?")
++clangpppath=$(which clang; reval="$?")
+ if [ "$?" -ne 0 ]; then
+     echo "Could not find a copy of clang++, is it installed or added to PATH?"
+     exit 1
+@@ -43,19 +45,21 @@ else
+     echo "Found llvm-config in $llvmconfigpath"
+ fi
+ echo "Compiling object files" | tee $logfile
+-timeout 300s clang++ -c $srcfile `llvm-config --cxxflags` >> $logfile 2>&1
++
++timeout 300s clang -c $srcfile -g `llvm-config --cxxflags` >> $logfile 2>&1
+ retval="$?"
+ if [ "$retval" == "124" ]; then
+     echo "Compilation took longer than 5 minutes - have you got conflicting versions of llvmretval Try building with the linked script."
+     exit 1
+ elif [ "$retval" -ne 0 ]; then
+     echo "Build shared lib failed on compilation, check $logfile"
++    cat $logfile
+     exit 1
+ else
+     echo "Compilation successful"
+ fi
+ echo "Linking" | tee $logfile
+-timeout 300s clang++ -shared NvmInstrumenter.o -o NvmInstrumenter.so >> $logfile 2>&1
++timeout 300s clang `llvm-config --cxxflags` -g -shared NvmInstrumenter.o -o NvmInstrumenter.so >> $logfile 2>&1
+ retval="$?"
+ if [ "$retval" == "124" ]; then
+     echo "Linking took longer than 5 minutes - have you got conflicting versions of llvmretval Try building with the linked script."
+diff --git a/runtime/src/consistency/helper_driver.cpp b/runtime/src/consistency/helper_driver.cpp
+index f34c8f2..e8a5d6a 100644
+--- a/runtime/src/consistency/helper_driver.cpp
++++ b/runtime/src/consistency/helper_driver.cpp
+@@ -24,6 +24,17 @@
+ #include "log_mgr.hpp"
+ #include "consistency_mgr.hpp"
+ 
++#include <atomic>
++std::atomic<bool> waitingHelperFinishFlag;
++//synchronize with helper thread. 
++void synchronizeWithHelper(){
++	waitingHelperFinishFlag.store(true);
++	while(waitingHelperFinishFlag.load()){
++		Atlas::LogMgr::getInstance().signalLogReady();
++		;
++	}
++}
++
+ namespace Atlas {
+     
+ uint64_t removed_log_count = 0;
+@@ -135,6 +146,10 @@ void Helper::doConsistentUpdate(void *arg_lsp)
+             CSMgr::deleteInstance();
+             break;
+         }
++        if(waitingHelperFinishFlag.load() && !cs_mgr.get_num_graph_vertices()){
++        	//helper finished. Now signal application it can continue.
++			waitingHelperFinishFlag.store(false);
++        }
+         
+         CSMgr::deleteInstance();
+ 
+diff --git a/runtime/tests/data_structures/CMakeLists.txt b/runtime/tests/data_structures/CMakeLists.txt
+index f02cc09..13367d8 100644
+--- a/runtime/tests/data_structures/CMakeLists.txt
++++ b/runtime/tests/data_structures/CMakeLists.txt
+@@ -16,7 +16,7 @@
+ 
+ set (EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/tests/data_structures)
+ 
+-set (DS_ATLAS_TGTS alarm_clock_nvm queue_nvm stores_nvm cow_array_list_nvm sll_nvm sll_mt_ll sll_ll)
++set (DS_ATLAS_TGTS alarm_clock_nvm queue_nvm stores_nvm cow_array_list_nvm sll_nvm sll_mt_ll sll_ll sps_nvm)
+ set (DS_NOATLAS_TGTS cow_array_list queue sll sll_mt stores alarm_clock)
+ set (DS_ALL_TGTS ${DS_ATLAS_TGTS} ${DS_NOATLAS_TGTS})
+ 
+diff --git a/runtime/tests/data_structures/PBenchmarkSPS.hpp b/runtime/tests/data_structures/PBenchmarkSPS.hpp
+new file mode 100644
+index 0000000..f6b4873
+--- /dev/null
++++ b/runtime/tests/data_structures/PBenchmarkSPS.hpp
+@@ -0,0 +1,226 @@
++#ifndef _PERSISTENT_BENCHMARK_SPS_H_
++#define _PERSISTENT_BENCHMARK_SPS_H_
++
++#include <atomic>
++#include <chrono>
++#include <thread>
++#include <string>
++#include <vector>
++#include <algorithm>
++#include <cassert>
++#include <iostream>
++#include <typeinfo>
++#include "atlas_api.h"
++#include "atlas_alloc.h"
++#include <pthread.h>
++
++static const int arraySize=200000;
++static const int MAX_THREADS=64;
++static const int MAX_RUNS = 10;
++
++using namespace std;
++using namespace chrono;
++
++extern unsigned nvm_region_id;
++
++static const int LOCK_BUCKET_SIZE = 1;
++static pthread_mutex_t locks[arraySize/LOCK_BUCKET_SIZE] = {PTHREAD_MUTEX_INITIALIZER};
++/**
++ * This is a micro-benchmark with integer swaps (SPS) for PTMs
++ */
++class PBenchmarkSPS {
++
++private:
++	int numThreads;
++
++public:
++	struct UserData  {
++		long long seq;
++		int tid;
++		UserData(long long lseq, int ltid) {
++			this->seq = lseq;
++			this->tid = ltid;
++		}
++		UserData() {
++			this->seq = -2;
++			this->tid = -2;
++		}
++		UserData(const UserData &other) : seq(other.seq), tid(other.tid) { }
++
++		bool operator < (const UserData& other) const {
++			return seq < other.seq;
++		}
++	};
++
++	PBenchmarkSPS(int numThreads) {
++		this->numThreads = numThreads;
++	}
++
++	struct sync_struct{
++		atomic<bool> startFlag = { false };
++		atomic<bool> quit = { false };
++		long numSwapsPerTx;
++		sync_struct(long numSwapsPerTxParam):startFlag(false),quit(false),numSwapsPerTx(numSwapsPerTxParam){}
++	};
++	static void thread_driver_fine_grained(sync_struct *sync, long long *ops, const int tid){
++		uint64_t seed = tid+1234567890123456781ULL;
++		int larraySize = arraySize;
++		long numSwapsPerTx = sync->numSwapsPerTx;
++		vector<uint64_t> pairs(numSwapsPerTx*2);
++		// Spin until the startFlag is set
++		while (!sync->startFlag.load()) {}
++		// Do transactions until the quit flag is set
++		long long tcount = 0;
++		while (!sync->quit.load()) {
++			uint64_t *parray = (uint64_t*)NVM_GetRegionRoot(nvm_region_id);
++			for (int i = 0; i < numSwapsPerTx; i++) {
++				seed = randomLong(seed);
++				auto ia = seed%larraySize;
++				seed = randomLong(seed);
++				auto ib = seed%larraySize;
++				pairs[i*2]=ia;
++				pairs[i*2+1]=ib;
++			}
++			vector<uint64_t> lcks(pairs);
++			std::sort(lcks.begin(), lcks.end());
++			auto end = std::unique(lcks.begin(),lcks.end());
++			for(auto it = lcks.begin(); it!=end; ++it)
++				pthread_mutex_lock(&locks[*it]);
++			for (int i = 0; i < numSwapsPerTx; i++) {
++				auto ia=pairs[2*i], ib=pairs[2*i+1];
++				uint64_t tmp = parray[ia];
++				parray[ia] = parray[ib];
++				parray[ib] = tmp;
++			}
++			for(auto it = lcks.begin(); it!=end; ++it)
++				pthread_mutex_unlock(&locks[*it]);
++
++			++tcount;
++			/*
++	                PE::read_transaction([this,&seed,&parray,&numWordsPerTransaction] () {
++	                    PersistentArrayInt<persist>* read_array = PE::template get_object<PersistentArrayInt<persist>>(PIDX_INT_ARRAY);
++	                    // Check that the array is consistent
++	                    int sum = 0;
++	                    for (int i = 0; i < arraySize; i++) {
++	                        sum += read_array->counters[i];
++	                    }
++	                    assert(sum == 0);
++	                } );
++			 */
++		}
++		*ops = tcount;
++	}
++	static void thread_driver(sync_struct *sync, long long *ops, const int tid){
++		uint64_t seed = tid+1234567890123456781ULL;
++		int larraySize = arraySize;
++		long numSwapsPerTx = sync->numSwapsPerTx;
++		// Spin until the startFlag is set
++		while (!sync->startFlag.load()) {}
++		// Do transactions until the quit flag is set
++		long long tcount = 0;
++		while (!sync->quit.load()) {
++			pthread_mutex_lock(&locks[0]);
++			uint64_t *parray = (uint64_t*)NVM_GetRegionRoot(nvm_region_id);
++			for (int i = 0; i < numSwapsPerTx; i++) {
++				seed = randomLong(seed);
++				auto ia = seed%larraySize;
++				uint64_t tmp = parray[ia];
++				seed = randomLong(seed);
++				auto ib = seed%larraySize;
++				parray[ia] = parray[ib];
++				parray[ib] = tmp;
++			}
++			pthread_mutex_unlock(&locks[0]);
++			++tcount;
++			/*
++                PE::read_transaction([this,&seed,&parray,&numWordsPerTransaction] () {
++                    PersistentArrayInt<persist>* read_array = PE::template get_object<PersistentArrayInt<persist>>(PIDX_INT_ARRAY);
++                    // Check that the array is consistent
++                    int sum = 0;
++                    for (int i = 0; i < arraySize; i++) {
++                        sum += read_array->counters[i];
++                    }
++                    assert(sum == 0);
++                } );
++			 */
++		}
++		*ops = tcount;
++	}
++
++	/*
++	 * An array of integers that gets randomly permutated.
++	 */
++	//template<typename PTM, template<typename> class PERSIST>
++	uint64_t benchmarkSPSInteger(std::string& className, const seconds testLengthSeconds, const long numSwapsPerTx, const int numRuns) {
++		long long ops[MAX_THREADS][MAX_RUNS];
++		long long lengthSec[MAX_RUNS];
++		assert(numThreads <= MAX_THREADS);
++		assert(numRuns <= MAX_RUNS);
++		//atomic<bool> startFlag = { false };
++		//atomic<bool> quit = { false };
++		sync_struct sync{numSwapsPerTx};
++
++		// Create the array of integers and initialize it, saving it in root pointer 0
++		int larraySize = arraySize;
++		NVM_BEGIN_DURABLE();
++		void *arr = nvm_alloc((unsigned long)(larraySize*sizeof(uint64_t)), nvm_region_id);
++		NVM_SetRegionRoot(nvm_region_id, arr);
++		NVM_END_DURABLE();
++
++		for (int irun = 0; irun < numRuns; irun++) {
++			if (irun == 0) {
++				//className = PTM::className();
++				cout << "##### " << className << " #####  \n";
++			}
++			thread enqdeqThreads[MAX_THREADS];
++			for (int tid = 0; tid < numThreads; tid++)
++				//enqdeqThreads[tid] = thread(thread_driver_fine_grained, &sync, &ops[tid][irun], tid);
++				enqdeqThreads[tid] = thread(thread_driver, &sync, &ops[tid][irun], tid);
++			auto startBeats = steady_clock::now();
++			sync.startFlag.store(true);
++			// Sleep for 20 seconds
++			this_thread::sleep_for(testLengthSeconds);
++			sync.quit.store(true);
++			auto stopBeats = steady_clock::now();
++			for (int tid = 0; tid < numThreads; tid++) enqdeqThreads[tid].join();
++			lengthSec[irun] = (stopBeats-startBeats).count();
++			sync.startFlag.store(false);
++			sync.quit.store(false);
++		}
++
++		NVM_BEGIN_DURABLE();
++		nvm_free(NVM_GetRegionRoot(nvm_region_id));
++		NVM_SetRegionRoot(nvm_region_id, nullptr);
++		NVM_END_DURABLE();
++
++		// Accounting
++		vector<long long> agg(numRuns);
++		for (int irun = 0; irun < numRuns; irun++) {
++			for(int i=0;i<numThreads;i++){
++				agg[irun] += ops[i][irun]*1000000000LL/lengthSec[irun];
++			}
++		}
++		// Compute the median. numRuns should be an odd number
++		sort(agg.begin(),agg.end());
++		auto maxops = agg[numRuns-1];
++		auto minops = agg[0];
++		auto medianops = agg[numRuns/2];
++		auto delta = (long)(100.*(maxops-minops) / ((double)medianops));
++		// Printed value is the median of the number of ops per second that all threads were able to accomplish (on average)
++		std::cout << "Swaps/sec = " << medianops*numSwapsPerTx << "     delta = " << delta*numSwapsPerTx << "%   min = " << minops*numSwapsPerTx << "   max = " << maxops*numSwapsPerTx << "\n";
++		return medianops*numSwapsPerTx;
++	}
++
++
++	/**
++	 * An imprecise but fast random number generator
++	 */
++	static uint64_t randomLong(uint64_t x) {
++		x ^= x >> 12; // a
++		x ^= x << 25; // b
++		x ^= x >> 27; // c
++		return x * 2685821657736338717LL;
++	}
++};
++
++#endif
+diff --git a/runtime/tests/data_structures/sps_nvm.cpp b/runtime/tests/data_structures/sps_nvm.cpp
+new file mode 100644
+index 0000000..2e247c1
+--- /dev/null
++++ b/runtime/tests/data_structures/sps_nvm.cpp
+@@ -0,0 +1,113 @@
++/*
++ * This benchmark executes SPS for the following PTMs:
++ * - RomulusLog
++ * - RomulusLR
++ * - PMDK
++ * - OneFilePTM-LF (lock-free)
++ * - OneFilePTM-WF (wait-free bounded)
++ */
++#include <iostream>
++#include <fstream>
++#include <cstring>
++#include <vector>
++#include <chrono>
++#include <atomic>
++#include <chrono>
++#include <thread>
++#include <string>
++#include <vector>
++#include <algorithm>
++#include <cassert>
++#include <iostream>
++#include <typeinfo>
++#include "PBenchmarkSPS.hpp"
++
++using namespace std;
++using namespace chrono;
++//#include "benchmarks/PBenchmarkSPS.hpp"
++//#include "ptms/atlas/AtlasPTM.hpp"
++
++unsigned nvm_region_id;
++
++void AtlasInit(){
++    NVM_Initialize();
++    nvm_region_id = NVM_FindOrCreateRegion("SPS_onefile", O_RDWR, NULL);
++}
++void AtlasFinish(){
++    NVM_CloseRegion(nvm_region_id);
++    // Optionally print Atlas stats
++#ifdef NVM_STATS
++    NVM_PrintStats();
++#endif
++    // Atlas bookkeeping
++    NVM_Finalize();
++}
++void synchronizeWithHelper();
++int main(void) {
++    AtlasInit();
++
++    const std::string dataFilename {"data/psps-integer-atlas.txt"};
++    vector<int> threadList = { 1, 2, 4, 8, 16, 32 };         // For the laptop
++    //vector<int> threadList = { 1, 2, 4, 8, 16, 24, 32 };   // For Cervino or AWS
++    vector<long> swapsPerTxList = { 1, 4, 8, 16, 32, 64, 128, 256 };
++    const int numRuns = 1;                                   // 5 runs for the paper
++    const seconds testLength(2);                          // 20s for the paper
++    const int EMAX_CLASS = 10;
++    unsigned maxClass = 0;
++    vector<vector<vector<uint64_t>>> results(EMAX_CLASS,
++    		vector<vector<uint64_t>>(threadList.size(),
++    				vector<uint64_t>(swapsPerTxList.size(),0)));
++
++    //uint64_t results[EMAX_CLASS][threadList.size()][swapsPerTxList.size()];
++    std::string cNames[EMAX_CLASS]={"ATLAS"};
++    // Reset results
++    //std::memset(results, 0, sizeof(uint64_t)*EMAX_CLASS*threadList.size()*swapsPerTxList.size());
++
++
++    // SPS Benchmarks multi-threaded
++    std::cout << "\n----- Persistent SPS Benchmark (multi-threaded integer array swap) -----\n";
++    for (unsigned it = 0; it < threadList.size(); it++) {
++        int nThreads = threadList[it];
++        for (unsigned is = 0; is < swapsPerTxList.size(); is++) {
++            int nWords = swapsPerTxList[is];
++            int ic = 0;
++            PBenchmarkSPS bench(nThreads);
++            std::cout << "\n----- threads=" << nThreads << "   runs=" << numRuns << "   length=" << testLength.count() << "s   arraySize=" << arraySize << "   swaps/tx=" << nWords << " -----\n";
++            results[ic][it][is] = bench.benchmarkSPSInteger   (cNames[ic], testLength, nWords, numRuns);
++            ic++;
++            maxClass = ic;
++            synchronizeWithHelper();
++        }
++        std::cout << "\n";
++    }
++
++    AtlasFinish();
++
++    // Export tab-separated values to a file to be imported in gnuplot or excel
++    ofstream dataFile;
++    dataFile.open(dataFilename);
++    dataFile << "Swaps\t";
++    // Printf class names for each column plus the corresponding thread
++    for (unsigned iclass = 0; iclass < maxClass; iclass++) {
++        for (unsigned ithread = 0; ithread < threadList.size(); ithread++) {
++            int nThreads = threadList[ithread];
++            dataFile << cNames[iclass] << "-" << nThreads <<"T\t";
++        }
++    }
++    dataFile << "\n";
++    for (unsigned iswaps = 0; iswaps < swapsPerTxList.size(); iswaps++) {
++        dataFile << swapsPerTxList[iswaps] << "\t";
++        for (unsigned iclass = 0; iclass < maxClass; iclass++) {
++            for (unsigned ithread = 0; ithread < threadList.size(); ithread++) {
++                dataFile << results[iclass][ithread][iswaps] << "\t";
++            }
++        }
++        dataFile << "\n";
++    }
++    dataFile.close();
++    std::cout << "\nSuccessfuly saved results in " << dataFilename << "\n";
++
++
++
++    return 0;
++}

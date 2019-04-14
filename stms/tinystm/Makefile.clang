@@ -1,0 +1,14 @@
+# Debug/optimization flags (optimized by default)
+ifeq ($(CFG),debug)
+  CFLAGS += -O0 -ggdb3
+else
+  # For Link Time Optimization, it requires gold linker and clang compiled with --enable-gold
+  # CFLAGS += -O4
+  # LDFLAGS += -use-gold-plugin
+  CFLAGS += -O3
+  CFLAGS += -march=native
+endif
+
+# Enable all warnings but unsused functions and labels
+CFLAGS += -Wall
+CFLAGS += -Werror -Wno-unused-label -Wno-unused-function
