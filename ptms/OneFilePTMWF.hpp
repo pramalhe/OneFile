@@ -537,7 +537,7 @@ struct PWriteSetEntry {
 };
 
 
-// The persistent write-set (undo log)
+// The persistent write-set
 struct PWriteSet {
     uint64_t              numStores {0};          // Number of stores in the writeSet for the current transaction
     std::atomic<uint64_t> request {0};            // Can be moved to CLOSED by other threads, using a CAS
@@ -1113,11 +1113,6 @@ template<typename T, typename... Args> T* tmNew(Args&&... args) { return OneFile
 template<typename T> void tmDelete(T* obj) { OneFileWF::tmDelete<T>(obj); }
 template<typename T> static T* get_object(int idx) { return OneFileWF::get_object<T>(idx); }
 template<typename T> static void put_object(int idx, T* obj) { OneFileWF::put_object<T>(idx, obj); }
-
-//
-// These four static methods are usefull for interfacing with C appications.
-// They provide alternatives to malloc(), free(), and manual interposing of loads and stores.
-//
 inline void* tmMalloc(size_t size) { return OneFileWF::tmMalloc(size); }
 inline void tmFree(void* obj) { OneFileWF::tmFree(obj); }
 
