@@ -31,12 +31,11 @@ Each implementation is a single header file. Yes, it's that small  :)
 ## Quickstart ##
 
 If you just want to use OneFile in your own application or benchmarks then follow these steps:
-- Choose one of the four OneFile implementations, depending on whether you want and STM, a PTM, lock-free or wait-free progress:
-
-    [stms/OneFileLF.hpp](https://github.com/pramalhe/OneFile/blob/master/stms/OneFileLF.hpp)      STM with lock-free transactions
-    [stms/OneFileWF.hpp](https://github.com/pramalhe/OneFile/blob/master/stms/OneFileWF.hpp)      STM with wait-free transactions
-    [ptms/POneFileLF.hpp](https://github.com/pramalhe/OneFile/blob/master/ptms/OneFilePTMLF.hpp)     PTM with lock-free transactions
-    [ptms/POneFileWF.hpp](https://github.com/pramalhe/OneFile/blob/master/ptms/OneFilePTMWF.hpp)     PTM with wait-free transactions
+- Choose one of the four OneFile implementations, depending on whether you want and STM, a PTM, lock-free or wait-free progress:  
+  [stms/OneFileLF.hpp](https://github.com/pramalhe/OneFile/blob/master/stms/OneFileLF.hpp)      STM with lock-free transactions  
+  [stms/OneFileWF.hpp](https://github.com/pramalhe/OneFile/blob/master/stms/OneFileWF.hpp)      STM with wait-free transactions  
+  [ptms/POneFileLF.hpp](https://github.com/pramalhe/OneFile/blob/master/ptms/OneFilePTMLF.hpp)     PTM with lock-free transactions  
+  [ptms/POneFileWF.hpp](https://github.com/pramalhe/OneFile/blob/master/ptms/OneFilePTMWF.hpp)     PTM with wait-free transactions  
 - Copy the header to your development folder
 - Include the header from a single .cpp. If you include from multiple compilation units (.cpp files) then move the last block in the .hpp to one of the .cpp files.
 - If you want a data structure that is already made then take a look at what's on these folders:
