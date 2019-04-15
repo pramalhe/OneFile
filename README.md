@@ -74,12 +74,13 @@ In summary, OneFile does *not* do disjoint-access parallel transactions. If you 
 
 ## Memory Reclamation ##
 
-We're using a customized implementation of Hazard Eras, lock-free/wait-free memory reclamation:
-https://github.com/pramalhe/ConcurrencyFreaks/blob/master/papers/hazarderas-2017.pdf
-https://dl.acm.org/citation.cfm?id=3087588
-See the HazardErasOF class in each implementation for more details.
+We're using a customized implementation of Hazard Eras, lock-free/wait-free memory reclamation:  
+[https://github.com/pramalhe/ConcurrencyFreaks/blob/master/papers/hazarderas-2017.pdf](https://github.com/pramalhe/ConcurrencyFreaks/blob/master/papers/hazarderas-2017.pdf)  
+[https://dl.acm.org/citation.cfm?id=3087588](https://dl.acm.org/citation.cfm?id=3087588)  
+See the HazardErasOF class in each implementation for more details.  
 
-As far as we know, there is only one wait-free data structure that has integrated wait-free memory reclamation: https://github.com/pramalhe/ConcurrencyFreaks/blob/master/papers/crturnqueue-2016.pdf 
+As far as we know, there is only one wait-free data structure that has integrated wait-free memory reclamation:  
+[https://github.com/pramalhe/ConcurrencyFreaks/blob/master/papers/crturnqueue-2016.pdf]([https://github.com/pramalhe/ConcurrencyFreaks/blob/master/papers/crturnqueue-2016.pdf)  
 OneFile and CX are the first time that someone has made a generic mechanism for wait-free memory reclamation.
 
 
