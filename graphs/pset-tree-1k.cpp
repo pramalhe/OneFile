@@ -5,8 +5,8 @@
 #include "PBenchmarkSets.hpp"
 #include "pdatastructures/TMRedBlackTree.hpp"
 #include "pdatastructures/TMRedBlackTreeByRef.hpp"
-//#include "ptms/romuluslog/RomulusLog.hpp"
-//#include "ptms/romuluslr/RomulusLR.hpp"
+#include "ptms/romuluslog/RomulusLog.hpp"
+#include "ptms/romuluslr/RomulusLR.hpp"
 #include "ptms/PMDKTM.hpp"
 #include "ptms/OneFilePTMLF.hpp"
 #include "ptms/OneFilePTMWF.hpp"
@@ -41,10 +41,10 @@ int main(void) {
             ic++;
             results[ic][it][ir] = bench.benchmark<TMRedBlackTree<uint64_t,uint64_t,pofwf::OneFileWF,pofwf::tmtype>,                    pofwf::OneFileWF>       (cNames[ic], nThreads, ratio, testLength, numRuns, numElements, false);
             ic++;
-            //results[ic][it][ir] = bench.benchmark<TMRedBlackTreeByRef<uint64_t,uint64_t,romuluslog::RomulusLog,romuluslog::persist>,   romuluslog::RomulusLog> (cNames[ic], nThreads, ratio, testLength, numRuns, numElements, false);
-            //ic++;
-            //results[ic][it][ir] = bench.benchmark<TMRedBlackTreeByRef<uint64_t,uint64_t,romuluslr::RomulusLR,romuluslr::persist>,      romuluslr::RomulusLR>   (cNames[ic], nThreads, ratio, testLength, numRuns, numElements, false);
-            //ic++;
+            results[ic][it][ir] = bench.benchmark<TMRedBlackTreeByRef<uint64_t,uint64_t,romuluslog::RomulusLog,romuluslog::persist>,   romuluslog::RomulusLog> (cNames[ic], nThreads, ratio, testLength, numRuns, numElements, false);
+            ic++;
+            results[ic][it][ir] = bench.benchmark<TMRedBlackTreeByRef<uint64_t,uint64_t,romuluslr::RomulusLR,romuluslr::persist>,      romuluslr::RomulusLR>   (cNames[ic], nThreads, ratio, testLength, numRuns, numElements, false);
+            ic++;
             results[ic][it][ir] = bench.benchmark<TMRedBlackTreeByRef<uint64_t,uint64_t,pmdk::PMDKTM,pmdk::persist>,                   pmdk::PMDKTM>           (cNames[ic], nThreads, ratio, testLength, numRuns, numElements, false);
             ic++;
             maxClass = ic;

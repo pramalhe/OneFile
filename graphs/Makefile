@@ -197,7 +197,7 @@ bin/q-array-enq-deq-tiny: q-array-enq-deq.cpp $(STMS) $(QUEUES_DEP)
 # Queues for persistent memory
 #	
 bin/pq-ll-enq-deq: pq-ll-enq-deq.cpp $(PTMS) $(PQUEUES_DEP) PBenchmarkQueues.hpp
-	$(CXX) $(CXXFLAGS) $(INCLUDES) pq-ll-enq-deq.cpp -o bin/pq-ll-enq-deq -lpthread $(PMDKLIBS) #lib/libromulus.a
+	$(CXX) $(CXXFLAGS) $(INCLUDES) pq-ll-enq-deq.cpp -o bin/pq-ll-enq-deq -lpthread $(PMDKLIBS) lib/libromulus.a
 
 	
 #
@@ -247,20 +247,20 @@ bin/set-hash-1k-tiny: set-hash-1k.cpp $(STMS)
 #
 # Sets for persistent memory
 #	
-bin/pset-ll-1k: pset-ll-1k.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMLinkedListSet.hpp #lib/libromulus.a
-	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-ll-1k.cpp -o bin/pset-ll-1k -lpthread $(PMDKLIBS) #lib/libromulus.a
+bin/pset-ll-1k: pset-ll-1k.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMLinkedListSet.hpp lib/libromulus.a
+	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-ll-1k.cpp -o bin/pset-ll-1k -lpthread $(PMDKLIBS) lib/libromulus.a
 
-bin/pset-ll-10k: pset-ll-10k.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMLinkedListSet.hpp #lib/libromulus.a
-	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-ll-10k.cpp -o bin/pset-ll-10k -lpthread $(PMDKLIBS) #lib/libromulus.a
+bin/pset-ll-10k: pset-ll-10k.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMLinkedListSet.hpp lib/libromulus.a
+	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-ll-10k.cpp -o bin/pset-ll-10k -lpthread $(PMDKLIBS) lib/libromulus.a
 
-bin/pset-hash-1k: pset-hash-1k.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMHashMap.hpp #lib/libromulus.a
-	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-hash-1k.cpp -o bin/pset-hash-1k -lpthread $(PMDKLIBS) #lib/libromulus.a
+bin/pset-hash-1k: pset-hash-1k.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMHashMap.hpp lib/libromulus.a
+	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-hash-1k.cpp -o bin/pset-hash-1k -lpthread $(PMDKLIBS) lib/libromulus.a
 
-bin/pset-tree-1k: pset-tree-1k.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMRedBlackTree.hpp #lib/libromulus.a
-	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-tree-1k.cpp -o bin/pset-tree-1k -lpthread $(PMDKLIBS) #lib/libromulus.a
+bin/pset-tree-1k: pset-tree-1k.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMRedBlackTree.hpp lib/libromulus.a
+	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-tree-1k.cpp -o bin/pset-tree-1k -lpthread $(PMDKLIBS) lib/libromulus.a
 	
-bin/pset-tree-1m: pset-tree-1m.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMRedBlackTree.hpp #lib/libromulus.a
-	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-tree-1m.cpp -o bin/pset-tree-1m -lpthread $(PMDKLIBS) #lib/libromulus.a
+bin/pset-tree-1m: pset-tree-1m.cpp $(PTMS) PBenchmarkSets.hpp ../pdatastructures/TMRedBlackTree.hpp lib/libromulus.a
+	$(CXX) $(CXXFLAGS) $(INCLUDES) pset-tree-1m.cpp -o bin/pset-tree-1m -lpthread $(PMDKLIBS) lib/libromulus.a
 
 	
 #	
@@ -282,11 +282,11 @@ bin/sps-object-tiny: sps-object.cpp $(STMS) BenchmarkSPS.hpp
 #
 # SPS for persistent memory
 #
-bin/psps-integer: psps-integer.cpp $(PTMS) PBenchmarkSPS.hpp #lib/libromulus.a
-	$(CXX) $(CXXFLAGS) $(INCLUDES) psps-integer.cpp -o bin/psps-integer -lpthread $(PMDKLIBS) #lib/libromulus.a
+bin/psps-integer: psps-integer.cpp $(PTMS) PBenchmarkSPS.hpp lib/libromulus.a
+	$(CXX) $(CXXFLAGS) $(INCLUDES) psps-integer.cpp -o bin/psps-integer -lpthread $(PMDKLIBS) lib/libromulus.a
 
-bin/psps-integer-atlas: psps-integer-atlas.cpp $(PTMS) PBenchmarkSPS.hpp persistencyclean #lib/libromulus.a
-	$(CXX) $(CXXFLAGS) $(INCLUDES) psps-integer-atlas.cpp -o bin/psps-integer-atlas -lpthread #lib/libromulus.a
+bin/psps-integer-atlas: psps-integer-atlas.cpp $(PTMS) PBenchmarkSPS.hpp persistencyclean lib/libromulus.a
+	$(CXX) $(CXXFLAGS) $(INCLUDES) psps-integer-atlas.cpp -o bin/psps-integer-atlas -lpthread lib/libromulus.a
 	
 
 # TODO: is it worth doing sps-object for PTMs ?
@@ -307,8 +307,8 @@ bin/latency-counter-tiny: latency-counter.cpp $(STMS) BenchmarkLatencyCounter.hp
 # 
 # Persistent balanced tree with 1M keys. Must be compiled one at a time otherwise you get all the NVM heaps allocated, which is too much 
 #
-bin/pset-tree-1m-romlog: pset-tree-1m.cpp PBenchmarkSets.hpp ../pdatastructures/TMRedBlackTree.hpp #lib/libromulus.a 
-	$(CXX) $(CXXFLAGS) -DUSE_ROMLOG $(INCLUDES) pset-tree-1m.cpp -o bin/pset-tree-1m-romlog -lpthread #lib/libromulus.a
+bin/pset-tree-1m-romlog: pset-tree-1m.cpp PBenchmarkSets.hpp ../pdatastructures/TMRedBlackTree.hpp lib/libromulus.a 
+	$(CXX) $(CXXFLAGS) -DUSE_ROMLOG $(INCLUDES) pset-tree-1m.cpp -o bin/pset-tree-1m-romlog -lpthread lib/libromulus.a
 
 bin/pset-tree-1m-romlr: pset-tree-1m.cpp PBenchmarkSets.hpp ../pdatastructures/TMRedBlackTree.hpp lib/libromulus.a 
 	$(CXX) $(CXXFLAGS) -DUSE_ROMLR $(INCLUDES) pset-tree-1m.cpp -o bin/pset-tree-1m-romlr -lpthread lib/libromulus.a

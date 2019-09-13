@@ -4,8 +4,8 @@
 #include "PBenchmarkQueues.hpp"
 #include "pdatastructures/pqueues/POFLFLinkedListQueue.hpp"
 #include "pdatastructures/pqueues/POFWFLinkedListQueue.hpp"
-//#include "pdatastructures/pqueues/RomLogLinkedListQueue.hpp"
-//#include "pdatastructures/pqueues/RomLRLinkedListQueue.hpp"
+#include "pdatastructures/pqueues/RomLogLinkedListQueue.hpp"
+#include "pdatastructures/pqueues/RomLRLinkedListQueue.hpp"
 #include "pdatastructures/pqueues/PMDKLinkedListQueue.hpp"
 #include "pdatastructures/pqueues/MichaelScottQueue.hpp"
 #include "pdatastructures/pqueues/PMichaelScottQueue.hpp"
@@ -34,10 +34,10 @@ int main(void) {
         ic++;
         results[ic][it] = bench.enqDeq<POFWFLinkedListQueue<uint64_t>,pofwf::OneFileWF>       (cNames[ic], numPairs, numRuns);
         ic++;
-        //results[ic][it] = bench.enqDeq<RomLogLinkedListQueue<uint64_t>,romuluslog::RomulusLog>(cNames[ic], numPairs, numRuns);
-        //ic++;
-        //results[ic][it] = bench.enqDeq<RomLRLinkedListQueue<uint64_t>,romuluslr::RomulusLR>   (cNames[ic], numPairs, numRuns);
-        //ic++;
+        results[ic][it] = bench.enqDeq<RomLogLinkedListQueue<uint64_t>,romuluslog::RomulusLog>(cNames[ic], numPairs, numRuns);
+        ic++;
+        results[ic][it] = bench.enqDeq<RomLRLinkedListQueue<uint64_t>,romuluslr::RomulusLR>   (cNames[ic], numPairs, numRuns);
+        ic++;
         results[ic][it] = bench.enqDeq<PMDKLinkedListQueue<uint64_t>,pmdk::PMDKTM>            (cNames[ic], numPairs, numRuns);
         ic++;
         // We have to use a lot less pairs for the Friedman Queue because it doesn't do memory reclamation and fills up the NVM pool too fast

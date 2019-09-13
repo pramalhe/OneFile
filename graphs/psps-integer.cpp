@@ -11,8 +11,8 @@
 #include <cstring>
 
 #include "PBenchmarkSPS.hpp"
-//#include "ptms/romuluslog/RomulusLog.hpp"
-//#include "ptms/romuluslr/RomulusLR.hpp"
+#include "ptms/romuluslog/RomulusLog.hpp"
+#include "ptms/romuluslr/RomulusLR.hpp"
 #include "ptms/PMDKTM.hpp"
 #include "ptms/OneFilePTMLF.hpp"
 #include "ptms/OneFilePTMWF.hpp"
@@ -45,10 +45,10 @@ int main(void) {
             ic++;
             results[ic][it][is] = bench.benchmarkSPSInteger<pofwf::OneFileWF,        pofwf::tmtype>        (cNames[ic], testLength, nWords, numRuns);
             ic++;
-            //results[ic][it][is] = bench.benchmarkSPSInteger<romuluslog::RomulusLog,  romuluslog::persist>  (cNames[ic], testLength, nWords, numRuns);
-            //ic++;
-            //results[ic][it][is] = bench.benchmarkSPSInteger<romuluslr::RomulusLR,    romuluslr::persist>   (cNames[ic], testLength, nWords, numRuns);
-            //ic++;
+            results[ic][it][is] = bench.benchmarkSPSInteger<romuluslog::RomulusLog,  romuluslog::persist>  (cNames[ic], testLength, nWords, numRuns);
+            ic++;
+            results[ic][it][is] = bench.benchmarkSPSInteger<romuluslr::RomulusLR,    romuluslr::persist>   (cNames[ic], testLength, nWords, numRuns);
+            ic++;
             results[ic][it][is] = bench.benchmarkSPSInteger<pmdk::PMDKTM,            pmdk::persist>        (cNames[ic], testLength, nWords, numRuns);
             ic++;
             maxClass = ic;
