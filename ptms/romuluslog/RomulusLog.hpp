@@ -1,11 +1,3 @@
-/*
- * Copyright 2017-2018
- *   Andreia Correia <andreia.veiga@unine.ch>
- *   Pascal Felber <pascal.felber@unine.ch>
- *   Pedro Ramalhete <pramalhe@gmail.com>
- *
- * This work is published under the MIT license. See LICENSE.TXT
- */
 #ifndef _ROMULUS_LOG_PERSISTENT_TRANSACTIONAL_MEMORY_
 #define _ROMULUS_LOG_PERSISTENT_TRANSACTIONAL_MEMORY_
 #include <atomic>
@@ -18,12 +10,28 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>     // Needed by close()
+#include <linux/mman.h> // Needed by MAP_SHARED_VALIDATE
 #include <stdio.h>
 #include <functional>
 
-#include "../common/pfences.h"
-#include "../common/ThreadRegistry.hpp"
-#include "CRWWPSpinLock.hpp"
+#include "../../common/pfences.h"
+#include "ptms/rwlocks/CRWWP_SpinLock.hpp"
+#include "common/ThreadRegistry.hpp"
+
+// Size of the persistent memory region
+#ifndef PM_REGION_SIZE
+#define PM_REGION_SIZE (2*1024*1024*1024ULL) // 2GB by default (to run on laptop)
+#endif
+// DAX flag (MAP_SYNC) is needed for Optane but not for /dev/shm/
+#ifdef PM_USE_DAX
+#define PM_FLAGS       MAP_SYNC
+#else
+#define PM_FLAGS       0
+#endif
+// Name of persistent file mapping
+#ifndef PM_FILE_NAME
+#define PM_FILE_NAME   "/dev/shm/romulus_log_shared"
+#endif
 
 namespace romuluslog {
 
@@ -50,7 +58,6 @@ template<typename T> struct persist;
 typedef void* mspace;
 extern void* mspace_malloc(mspace msp, size_t bytes);
 extern void mspace_free(mspace msp, void* mem);
-extern mspace create_mspace_with_base(void* base, size_t capacity, int locked);
 #endif
 
 /*
@@ -64,9 +71,6 @@ class RomulusLog {
     // Id for sanity check of Romulus
     static const uint64_t MAGIC_ID = 0x1337BAB2;
 
-    // Number of indexes available for put_object/get_object
-    static const int NUM_ROOT_PTRS = 100;
-
     // Possible values for "state"
     static const int IDLE = 0;
     static const int MUTATING = 1;
@@ -75,11 +79,20 @@ class RomulusLog {
     // Number of log entries in a chunk of the log
     static const int CHUNK_SIZE = 1024;
 
-    // Padding on x86 should be on 2 cache lines
-    static const int CLPAD = 128/sizeof(uintptr_t);
+    // Member variables
+    const char* MMAP_FILENAME = PM_FILE_NAME;
+    bool dommap;
+    int fd = -1;
+    uint8_t* base_addr;
+    uint64_t max_size;
+    uint8_t* main_addr;
+    uint8_t* back_addr;
+    CRWWPSpinLock rwlock {};
 
-    // Filename for the mapping file
-    const char* MMAP_FILENAME = "/dev/shm/romuluslog_shared";
+    // Stuff used by the Flat Combining mechanism
+    static const int CLPAD = 128/sizeof(uintptr_t);
+    alignas(128) std::atomic< std::function<void()>* >* fc; // array of atomic pointers to functions
+    const int maxThreads;
 
     // Each log entry is two words (8+8 = 16 bytes)
     struct LogEntry {
@@ -93,6 +106,10 @@ class RomulusLog {
         LogChunk* next        { nullptr };
     };
 
+    // There is always at least one (empty) chunk in the log, it's the head
+    LogChunk* log_head = new LogChunk;
+    LogChunk* log_tail = log_head;
+
     // One instance of this is at the start of base_addr, in persistent memory
     struct PersistentHeader {
         uint64_t         id {0};          // Validates intialization
@@ -105,39 +122,28 @@ class RomulusLog {
         uint64_t         used_size {0};   // It has to be the last, to calculate the used_size
     };
 
-    bool dommap;
-    int fd = -1;
-    uint8_t* base_addr;
-    uint8_t* real_base_addr;
-    uint64_t max_size;
-    uint8_t* main_addr;
-    uint8_t* back_addr;
-    // There is always at least one (empty) chunk in the log, it's the head
-    LogChunk* log_head = new LogChunk;
-    LogChunk* log_tail = log_head;
-
-    // Volatile pointer to start of persistent memory
-    PersistentHeader* per {nullptr};
+    PersistentHeader* per {nullptr};      // Volatile pointer to start of persistent memory
     uint64_t log_size = 0;
-    // Aligned just to make sure there is no false-sharing with rwlock below
-    alignas(128) bool logEnabled = true;
+    bool logEnabled = true;
 
 #ifdef USE_ESLOCO
     EsLoco<persist> *esloco {nullptr};
 #endif
 
-    CRWWPSpinLock rwlock {};
+    //
+    // Private methods
+    //
 
-    // Array of atomic pointers to functions (used by Flat Combining)
-    alignas(128) std::atomic< std::function<void()>* >* fc;
-    const int maxThreads;
+    // Copy the data from 'main' to 'back'
+    void copyMainToBack();
 
+    // Copy the data from 'back' to 'main'
+    void copyBackToMain();
 
 public:
 
     int* histo  = new int[300]; // array of atomic pointers to functions
     int storecount = 0;
-
     // Flush touched cache lines
     inline static void flush_range(uint8_t* addr, size_t length) noexcept {
         const int cache_line_size = 64;
@@ -147,21 +153,8 @@ public:
     }
 
 
+
 private:
-
-    // Copy the data from 'main' to 'back'
-	void copyMainToBack() {
-		uint64_t size = std::min(per->used_size,g_main_size);
-		std::memcpy(back_addr, main_addr, size);
-		flush_range(back_addr, size);
-	}
-
-	// Copy the data from 'back' to 'main'
-	void copyBackToMain() {
-		uint64_t size = std::min(per->used_size,g_main_size);
-		std::memcpy(main_addr, back_addr, size);
-		flush_range(main_addr, size);
-	}
 
     /*
      * Called to make every store persistent on main and back region
@@ -181,7 +174,9 @@ private:
     }
 
     /*
-     * Called at the end of a transaction to replicate the mutations on "back".
+     * Called at the end of a transaction to replicate the mutations on "back",
+     * or when abort_transaction() is called by the user, to rollback the
+     * mutations on "main".
      * Deletes the log as it is being applied.
      */
     inline void apply_log(uint8_t* from_addr, uint8_t* to_addr) {
@@ -214,174 +209,59 @@ private:
 public:
 
     /*
-     * Adds to the log the current contents of the memory location starting at
-     * 'addr' with a certain 'length' in bytes
-     */
-    inline void add_to_log(void* addr, int length) noexcept {
-       if (!logEnabled) return;
-       // If the log has more than 1/4 of the entire size then skip the log
-       // and copy the used size of the main region.
-       if (log_size > per->used_size/4) {
-           logEnabled = false;
-           return;
-       }
-
-       size_t addrCL = ((size_t)addr)>>6;
-       // Get the current chunk of log and if it is already full then create a new chunk and add the entry there.
-       LogChunk* chunk = log_tail;
-
-       bool sameCL = false;
-
-       if(addrCL == (size_t)((uint8_t*)addr+length)>>6){
-           sameCL = true;
-           int size = chunk->num_entries;
-           for(int i=size-1;i>=0 && i>size-16;i--){
-               LogEntry& e1 = chunk->entries[i];
-
-               size_t offCL = (size_t)(e1.offset+main_addr)>>6;
-               if(e1.length==64 && (size_t)(offCL<<6) == (size_t)(e1.offset+main_addr)){
-                   if(offCL == addrCL) return;
-               }
+        * Adds to the log the current contents of the memory location starting at
+        * 'addr' with a certain 'length' in bytes
+        */
+       inline void add_to_log(void* addr, int length) noexcept {
+           if (!logEnabled) return;
+           // If the log has more than 1/4 of the entire size then skip the log
+           // and copy the used size of the main region.
+           if (log_size > per->used_size/4) {
+               logEnabled = false;
+               return;
            }
-       }
-       if (chunk->num_entries == CHUNK_SIZE) {
-           chunk = new LogChunk();
-           log_tail->next = chunk;
-           log_tail = chunk;
-       }
-       LogEntry& e = chunk->entries[chunk->num_entries];
-       if(histoOn) gRomLog.storecount+=2;
 
-       if(sameCL){
-           size_t cl =addrCL<<6;
-           e.offset = (uint8_t*)cl - main_addr;
-           e.length = 64;
-       }else {
-           e.offset = (uint8_t*)addr - main_addr;
-           e.length = length;
-       }
-       log_size += length;
-       chunk->num_entries++;
-    }
+           size_t addrCL = ((size_t)addr)>>6;
+           // Get the current chunk of log and if it is already full then create a new chunk and add the entry there.
+           LogChunk* chunk = log_tail;
 
+           bool sameCL = false;
 
-    RomulusLog() : dommap{true},maxThreads{128} {
-       fc = new std::atomic< std::function<void()>* >[maxThreads*CLPAD];
-       for (int i = 0; i < maxThreads; i++) {
-           fc[i*CLPAD].store(nullptr, std::memory_order_relaxed);
-       }
-       // Filename for the mapping file
-       /*if (dommap) {
+           if(addrCL == (size_t)((uint8_t*)addr+length)>>6){
+        	   sameCL = true;
+        	   int size = chunk->num_entries;
+        	   for(int i=size-1;i>=0 && i>size-16;i--){
+        		   LogEntry& e1 = chunk->entries[i];
 
-       }*/
-       ns_init();
-    }
-
-
-    ~RomulusLog() {
-       delete[] fc;
-       // Must do munmap() if we did mmap()
-       if (dommap) {
-           munmap(base_addr, max_size);
-           close(fd);
-       }
-       if(histoflag){
-        for(int i=0;i<300;i++){
-            std::cout<<i<<":"<<histo[i]<<"\n";
-        }
-       }
-    }
-
-    void ns_init() {
-       base_addr = (uint8_t*)0x7fdd40000000;
-
-       real_base_addr = (uint8_t*)(((size_t)(base_addr + 128)<<6)>>6);
-
-       max_size = 400*1024*1024; // 400 Mb => 200 Mb for the user
-       // Check if the file already exists or not
-       struct stat buf;
-       if (stat(MMAP_FILENAME, &buf) == 0) {
-           // File exists
-           //std::cout << "Re-using memory region\n";
-           fd = open(MMAP_FILENAME, O_RDWR|O_CREAT, 0755);
-           assert(fd >= 0);
-           // mmap() memory range
-           uint8_t* got_addr = (uint8_t *)mmap(base_addr, max_size, (PROT_READ | PROT_WRITE), MAP_SHARED, fd, 0);
-           if (got_addr == MAP_FAILED) {
-               printf("got_addr = %p  %p\n", got_addr, MAP_FAILED);
-               perror("ERROR: mmap() is not working !!! ");
-               assert(false);
+        		   size_t offCL = (size_t)(e1.offset+main_addr)>>6;
+        		   if(e1.length==64 && (size_t)(offCL<<6) == (size_t)(e1.offset+main_addr)){
+        			   if(offCL == addrCL) return;
+        		   }
+        	   }
            }
-           per = reinterpret_cast<PersistentHeader*>(real_base_addr- sizeof(PersistentHeader));
-           if (per->id != MAGIC_ID) createFile();
-           g_main_size = (max_size -(real_base_addr - base_addr))/2;
-           main_addr = real_base_addr;
-           back_addr = main_addr + g_main_size;
-           g_main_addr = main_addr;
-    #ifdef USE_ESLOCO
-           esloco = new EsLoco<persist>(main_addr, g_main_size, false);
-    #endif
-           recover();
-       } else {
-           createFile();
+           if (chunk->num_entries == CHUNK_SIZE) {
+               chunk = new LogChunk();
+               log_tail->next = chunk;
+               log_tail = chunk;
+           }
+           LogEntry& e = chunk->entries[chunk->num_entries];
+           if(histoOn) gRomLog.storecount+=2;
+           if(sameCL){
+        	   size_t cl =addrCL<<6;
+               e.offset = (uint8_t*)cl - main_addr;
+               e.length = 64;
+           }else {
+        	   e.offset = (uint8_t*)addr - main_addr;
+        	   e.length = length;
+           }
+           log_size += length;
+           chunk->num_entries++;
        }
-    }
 
-    void createFile(){
-       // File doesn't exist
-       fd = open(MMAP_FILENAME, O_RDWR|O_CREAT, 0755);
-       assert(fd >= 0);
-       if (lseek(fd, max_size-1, SEEK_SET) == -1) {
-           perror("lseek() error");
-       }
-       if (write(fd, "", 1) == -1) {
-           perror("write() error");
-       }
-       // mmap() memory range
-       uint8_t* got_addr = (uint8_t *)mmap(base_addr, max_size, (PROT_READ | PROT_WRITE), MAP_SHARED, fd, 0);
-       if (got_addr == MAP_FAILED) {
-           printf("got_addr = %p  %p\n", got_addr, MAP_FAILED);
-           perror("ERROR: mmap() is not working !!! ");
-           assert(false);
-       }
-       // No data in persistent memory, initialize
-       per = new ((real_base_addr- sizeof(PersistentHeader))) PersistentHeader;
-       //uint8_t* lostBytes = real_base_addr - base_addr;
-       g_main_size = (max_size-(real_base_addr - base_addr))/2;
-       main_addr = real_base_addr;
-       back_addr = main_addr + g_main_size;
-       g_main_addr = main_addr;
-       PWB(&per->id);
-       PWB(&per->state);
-       // We need to call create_mspace_with_base() from within a transaction so that
-       // the modifications on 'main' get replicated on 'back'. This means we temporarily
-       // need to set the 'used_size' to 'main_size' to make sure everything is copied.
-       begin_transaction();
-       // Just to force the copy of the whole main region
-       per->used_size = g_main_size;
-    #ifdef USE_ESLOCO
-       esloco = new EsLoco<persist>(main_addr, g_main_size, false);
-       per->objects = (void**)esloco->malloc(sizeof(void*)*NUM_ROOT_PTRS);
-    #else
-       per->ms = create_mspace_with_base(main_addr, g_main_size, false);
-       per->objects = (void**)mspace_malloc(per->ms, sizeof(void*)*NUM_ROOT_PTRS);
-    #endif
-       for (int i = 0; i < NUM_ROOT_PTRS; i++) {
-           per->objects[i] = nullptr;
-           add_to_log(&per->objects[i],sizeof(void*));
-           PWB(&per->objects[i]);
-       }
-       end_transaction();
-       // The used bytes in the main region
-       per->used_size = (uint8_t*)(&per->used_size) - (uint8_t*)real_base_addr+128;
-       flush_range((uint8_t*)per,sizeof(PersistentHeader));
-       PFENCE();
-       // Finally, set the id to confirm that the whole initialization process has completed
-       per->id = MAGIC_ID;
-       PWB(&per->id);
-       PSYNC();
-       consistency_check();
-    }
+
+    RomulusLog();
+
+    ~RomulusLog();
 
     static std::string className() { return "RomulusLog"; }
 
@@ -400,51 +280,10 @@ public:
         PWB(&gRomLog.per->objects[idx]);
     }
 
-    void ns_reset(){
-        per->id = MAGIC_ID;
-        PWB(&per->id);
-        PFENCE();
-        std::memset(base_addr,0,max_size);
+    void createFile();
 
-        // No data in persistent memory, initialize
-        per = new (base_addr) PersistentHeader;
-        g_main_size = (max_size - sizeof(PersistentHeader))/2;
-        main_addr = base_addr + sizeof(PersistentHeader);
-        back_addr = main_addr + g_main_size;
-        PWB(&per->id);
-        PWB(&per->state);
-        // We need to call create_mspace_with_base() from within a transaction so that
-        // the modifications on 'main' get replicated on 'back'. This means we temporarily
-        // need to set the 'used_size' to 'main_size' to make sure everything is copied.
-        begin_transaction();
-        // Just to force the copy of the whole main region
-        per->used_size = g_main_size;
-    #ifdef USE_ESLOCO
-        esloco = new EsLoco<persist>(main_addr, g_main_size, false);
-        per->objects = (void**)esloco->malloc(sizeof(void*)*NUM_ROOT_PTRS);
-    #else
-        per->ms = create_mspace_with_base(main_addr, g_main_size, false);
-        per->objects = (void**)mspace_malloc(per->ms, sizeof(void*)*NUM_ROOT_PTRS);
-    #endif
-        for (int i = 0; i < NUM_ROOT_PTRS; i++) {
-            per->objects[i] = nullptr;
-            add_to_log(&per->objects[i],sizeof(void*));
-            PWB(&per->objects[i]);
-        }
-        end_transaction();
-        // The used bytes in the main region
-        per->used_size = (uint8_t*)(&per->used_size) - ((uint8_t*)base_addr+sizeof(PersistentHeader))+128;
-        flush_range((uint8_t*)per,sizeof(PersistentHeader));
-        PFENCE();
-        // Finally, set the id to confirm that the whole initialization process has completed
-        per->id = MAGIC_ID;
-        PWB(&per->id);
-        PSYNC();
-    }
-
-    static void reset() {
-        gRomLog.ns_reset();
-    }
+    void ns_reset();
+    static void reset();
 
     /*
      * Must be called at the beginning of each (write) transaction.
@@ -520,26 +359,18 @@ public:
     /*
      * Recovers from an incomplete transaction if needed
      */
-    inline void recover() {
-        int lstate = per->state.load(std::memory_order_relaxed);
-        if (lstate == IDLE) {
-            return;
-        } else if (lstate == COPYING) {
-            printf("RomulusLog: Recovery from COPYING...\n");
-            copyMainToBack();
-        } else if (lstate == MUTATING) {
-            printf("RomulusLog: Recovery from MUTATING...\n");
-            copyBackToMain();
-        } else {
-            assert(false);
-            // ERROR: corrupted state
-        }
-        PFENCE();
-        per->state.store(IDLE, std::memory_order_relaxed);
-        return;
-    }
+    inline void recover();
+
+
+    /*
+     * Meant to be called from user code when something bad happens and the
+     * whole transaction needs to be aborted.
+     */
+    inline void abort_transaction(void);
+
 
     // Same as begin/end transaction, but with a lambda.
+    // Calling abort_transaction() from within the lambda is not allowed.
     template<typename R, class F>
     R transaction(F&& func) {
         begin_transaction();
@@ -632,6 +463,7 @@ public:
         if(histoflag) histo[storecount]++;
         rwlock.exclusiveUnlock();
         --tl_nested_write_trans;
+        //consistency_check();
     }
 
     // Non-static thread-safe read-only transaction
@@ -648,9 +480,6 @@ public:
         rwlock.sharedUnlock(tid);
         --tl_nested_read_trans;
     }
-
-
-
 
     // static thread-safe read-only transaction
     static void begin_read_transaction() {
@@ -671,28 +500,8 @@ public:
      * that memory region.
      */
     template <typename T, typename... Args>
-    static T* alloc(Args&&... args) {
-    	//if(histoflag) histoOn = true;
-        const RomulusLog& r = gRomLog;
-#ifdef USE_ESLOCO
-        void* addr = r.esloco->malloc(sizeof(T));
-        assert(addr != nullptr);
-#else
-        void* addr = mspace_malloc(r.per->ms, sizeof(T));
-        assert(addr != 0);
-#endif
-        T* ptr = new (addr) T(std::forward<Args>(args)...); // placement new
-        if (r.per->used_size < (uint8_t*)addr - r.main_addr + sizeof(T)+128) {
-            r.per->used_size = (uint8_t*)addr - r.main_addr + sizeof(T)+128;
-            PWB(&r.per->used_size);
-        }
-        //if(histoflag) histoOn = false;
-        return ptr;
-    }
-
-    template <typename T, typename... Args>
     static T* tmNew(Args&&... args) {
-        //if(histoflag) histoOn = true;
+    	//if(histoflag) histoOn = true;
         const RomulusLog& r = gRomLog;
 #ifdef USE_ESLOCO
         void* addr = r.esloco->malloc(sizeof(T));
@@ -716,19 +525,6 @@ public:
      * Calls destructor of T and then reclaims the memory using Doug Lea's free
      */
     template<typename T>
-    static void free(T* obj) {
-        if (obj == nullptr) return;
-        //if(histoflag) histoOn =true;
-        obj->~T();
-#ifdef USE_ESLOCO
-        gRomLog.esloco->free(obj);
-#else
-        mspace_free(gRomLog.per->ms,obj);
-#endif
-        //if(histoflag) histoOn =false;
-    }
-
-    template<typename T>
     static void tmDelete(T* obj) {
         if (obj == nullptr) return;
         //if(histoflag) histoOn =true;
@@ -740,6 +536,7 @@ public:
 #endif
         //if(histoflag) histoOn =false;
     }
+
 
     /* Allocator for C methods (like memcached) */
     static void* pmalloc(size_t size) {
@@ -772,20 +569,6 @@ public:
     	//if(histoflag) histoOn =false;
     }
 
-    static void init() {
-    	gRomLog.ns_init();
-    }
-
-    template<class F>
-    static void read_transaction(F&& func) {
-        gRomLog.ns_read_transaction(func);
-    }
-
-    template<class F>
-    static void write_transaction(F&& func) {
-        gRomLog.ns_write_transaction(func);
-    }
-
     template<class F>
     inline static void readTx(F&& func) {
         gRomLog.ns_read_transaction(func);
@@ -796,6 +579,8 @@ public:
         gRomLog.ns_write_transaction(func);
     }
 
+
+    // TODO: Remove these two once we make CX have void transactions
     template<typename R,class F>
     inline static R readTx(F&& func) {
         gRomLog.ns_read_transaction([&]() {func();});
@@ -807,7 +592,8 @@ public:
         return R{};
     }
 
-    /*
+
+/*
      * Thread-safe. Compares the contents of 'main' and 'back'.
      * This method MUST be called outside a transaction.
      */
@@ -906,7 +692,7 @@ struct persist {
         pstore(other.pload());
     }
 
-    // Assignment operator
+    // Assignment operator from an atomic_mwc
     persist<T>& operator=(const persist<T>& other) {
         pstore(other.pload());
         return *this;
@@ -936,10 +722,14 @@ struct persist {
         return *this;
     }
 
+    // Implementation is after RomulusLog class
     inline void pstore(T newVal) {
         val = newVal;
         const uint8_t* valaddr = (uint8_t*)&val;
-        if (valaddr >= g_main_addr && valaddr < g_main_addr+g_main_size) gRomLog.add_to_log(&val,sizeof(T));
+        if (valaddr >= g_main_addr && valaddr < g_main_addr+g_main_size) {
+            //PWB(&val);
+            gRomLog.add_to_log(&val,sizeof(T));
+        }
     }
 
     inline T pload() const {

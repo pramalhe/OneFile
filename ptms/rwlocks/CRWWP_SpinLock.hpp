@@ -33,7 +33,7 @@
 #include <stdexcept>
 #include <cstdint>
 #include <thread>
-#include "ThreadRegistry.hpp"
+#include "../../common/ThreadRegistry.hpp"
 
 
 // Pause to prevent excess processor bus usage
