@@ -20,7 +20,7 @@
 
 // Size of the persistent memory region
 #ifndef PM_REGION_SIZE
-#define PM_REGION_SIZE (2*1024*1024*1024ULL) // 2GB by default (to run on laptop)
+#define PM_REGION_SIZE (400*1024*1024ULL) // 400 MB by default (to run on laptop)
 #endif
 // DAX flag (MAP_SYNC) is needed for Optane but not for /dev/shm/
 #ifdef PM_USE_DAX

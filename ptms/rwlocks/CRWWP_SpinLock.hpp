@@ -52,9 +52,7 @@
  * <h1> C-RW-WP </h1>
  *
  * A C-RW-WP reader-writer lock with writer preference and using a
- * Ticket Lock as Cohort.
- * This is starvation-free for writers and for readers, but readers may be
- * starved by writers.
+ * spin Lock as Cohort.
  *
  * C-RW-WP paper:         http://dl.acm.org/citation.cfm?id=2442532
  *
