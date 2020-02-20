@@ -793,15 +793,15 @@ private:
         if (debug) printf("Applying %ld stores in write-set\n", writeSets[tid].numStores);
         writeSets[tid].apply(seq, tid);
         writeSets[tid].flushModifications();
-        const uint64_t newReq = seqidx2trans(seq+1,idx);
-        if (opd.pWriteSet->request.load(std::memory_order_acquire) == lcurTx) {
+        if (opd.pWriteSet->request.load() == lcurTx) {
+            const uint64_t newReq = seqidx2trans(seq+1,idx);
             opd.pWriteSet->request.compare_exchange_strong(lcurTx, newReq);
         }
     }
 
     // Upon restart, re-applies the last transaction, so as to guarantee that
     // we have a consistent state in persistent memory.
-    // This is not needed on x86, where the DCAS has atomicity writting to persistent memory.
+    // This is not used on x86 because the DCAS has atomicity writting to persistent memory.
     void recover() {
         uint64_t lcurTx = curTx->load(std::memory_order_acquire);
         opData[trans2idx(lcurTx)].pWriteSet->applyFromRecover();

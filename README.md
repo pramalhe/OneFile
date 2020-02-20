@@ -40,8 +40,8 @@ If you just want to use OneFile in your own application or benchmarks then follo
 - Include the header from a single .cpp. If you include from multiple compilation units (.cpp files) then move the last block in the .hpp to one of the .cpp files.
 - If you want a data structure that is already made then take a look at what's on these folders:
 
-    datastructures/         Data structures for volatile memory (needs one of the STMs)
-    pdatastructures/        Data structures for persistent memory (needs one of the PTMs)
+	datastructures/         Data structures for volatile memory (needs one of the STMs)
+	pdatastructures/        Data structures for persistent memory (needs one of the PTMs)
 
 
 ### Design ###
