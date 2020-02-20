@@ -1,7 +1,7 @@
 CXX = g++-8
-CXXFLAGS = -std=c++17 -g -O3 -DPWB_IS_CLFLUSHOPT # -fuse-ld=gold -fsanitize=address
+CXXFLAGS = -std=c++17 -g -O2 -DPWB_IS_CLFLUSHOPT # -fuse-ld=gold -fsanitize=address
 # For castor-1
-#CXXFLAGS = -std=c++17 -g -O3 -DPWB_IS_CLWB -DPM_REGION_SIZE=64*1024*1024*1024ULL -DPM_USE_DAX -DPM_FILE_NAME="\"/mnt/pmem0/durable\""
+#CXXFLAGS = -std=c++17 -g -O2 -DPWB_IS_CLWB -DPM_REGION_SIZE=64*1024*1024*1024ULL -DPM_USE_DAX -DPM_FILE_NAME="\"/mnt/pmem0/durable\""
 
 # Possible options for PWB are:
 # -DPWB_IS_CLFLUSH		pwb is a CLFLUSH and pfence/psync are nops      (Broadwell)
